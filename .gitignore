@@ -1,0 +1,24 @@
+# Binaries
+/whatsmeow-mcp
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+
+# WhatsApp session and message data: never commit
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+/store/
+/data/
+/media/
+pair_code.txt
+.lock
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
