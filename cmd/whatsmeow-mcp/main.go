@@ -1,5 +1,5 @@
 // Command whatsmeow-mcp is a WhatsApp MCP server in a single binary: it holds
-// a linked-device session via whatsmeow and serves MCP over stdio.
+// a linked-device session via whatsmeow and serves MCP over stdio and/or Streamable HTTP.
 package main
 
 import (
@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -41,7 +42,7 @@ func defaultDataDir() string {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `whatsmeow-mcp %s - WhatsApp MCP server (stdio) backed by whatsmeow
+	fmt.Fprintf(os.Stderr, `whatsmeow-mcp %s - WhatsApp MCP server (stdio / HTTP) backed by whatsmeow
 
 Usage:
   whatsmeow-mcp [flags]          serve MCP over stdio (default)
@@ -58,7 +59,8 @@ func main() {
 	restAddr := flag.String("rest", "", "also serve the REST API on this address, e.g. :8080 (a bare :port binds to 127.0.0.1)")
 	pairPhone := flag.String("pair-phone", "", "pair with a phone-number code instead of a QR code (digits with country code)")
 	noConnect := flag.Bool("no-connect", false, "offline mode: open the local databases but never connect to WhatsApp")
-	noMCP := flag.Bool("no-mcp", false, "do not serve MCP on stdio (daemon mode, use with --rest)")
+	noMCP := flag.Bool("no-mcp", false, "do not serve MCP on stdio (daemon mode, use with --rest and/or --mcp-http)")
+	mcpHTTPAddr := flag.String("mcp-http", "", "also serve MCP over Streamable HTTP at /mcp on this address, e.g. :8090 (a bare :port binds to 127.0.0.1)")
 	logLevel := flag.String("log-level", "INFO", "log level for stderr: DEBUG, INFO, WARN, ERROR")
 	flag.Usage = usage
 
@@ -87,13 +89,13 @@ func main() {
 
 	// stdout is the MCP channel: all logs go to stderr.
 	logger := newLogger(os.Stderr, "whatsmeow-mcp", *logLevel)
-	if err := run(cmd, *dataDir, *restAddr, *pairPhone, *noConnect, *noMCP, logger); err != nil {
+	if err := run(cmd, *dataDir, *restAddr, *mcpHTTPAddr, *pairPhone, *noConnect, *noMCP, logger); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 }
 
-func run(cmd, dataDir, restAddr, pairPhone string, offline, noMCP bool, logger waLog.Logger) error {
+func run(cmd, dataDir, restAddr, mcpHTTPAddr, pairPhone string, offline, noMCP bool, logger waLog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -156,16 +158,22 @@ func run(cmd, dataDir, restAddr, pairPhone string, offline, noMCP bool, logger w
 	}
 
 	if restAddr != "" {
-		if strings.HasPrefix(restAddr, ":") {
-			restAddr = "127.0.0.1" + restAddr
+		srv, err := serveHTTP(localAddr(restAddr), rest.Handler(svc), "REST API", "", logger)
+		if err != nil {
+			return err
 		}
-		srv := &http.Server{Addr: restAddr, Handler: rest.Handler(svc), ReadHeaderTimeout: 10 * time.Second}
-		go func() {
-			logger.Infof("REST API listening on http://%s", restAddr)
-			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				logger.Errorf("REST server: %v", err)
-			}
-		}()
+		defer srv.Close()
+	}
+
+	// One MCP server instance is shared by the stdio and HTTP transports.
+	server := mcpserver.New(svc, version)
+	if mcpHTTPAddr != "" {
+		mux := http.NewServeMux()
+		mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil))
+		srv, err := serveHTTP(localAddr(mcpHTTPAddr), mux, "MCP (Streamable HTTP)", "/mcp", logger)
+		if err != nil {
+			return err
+		}
 		defer srv.Close()
 	}
 
@@ -173,7 +181,6 @@ func run(cmd, dataDir, restAddr, pairPhone string, offline, noMCP bool, logger w
 		<-ctx.Done()
 		return nil
 	}
-	server := mcpserver.New(svc, version)
 	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil && !errors.Is(err, context.Canceled) {
 		if strings.Contains(err.Error(), "EOF") {
 			return nil // client closed stdin
@@ -181,4 +188,29 @@ func run(cmd, dataDir, restAddr, pairPhone string, offline, noMCP bool, logger w
 		return err
 	}
 	return nil
+}
+
+// localAddr makes a bare ":port" bind to loopback only.
+func localAddr(addr string) string {
+	if strings.HasPrefix(addr, ":") {
+		return "127.0.0.1" + addr
+	}
+	return addr
+}
+
+// serveHTTP binds addr synchronously (so a busy port is a startup error) and
+// serves h in the background.
+func serveHTTP(addr string, h http.Handler, what, path string, logger waLog.Logger) (*http.Server, error) {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", what, err)
+	}
+	srv := &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second}
+	logger.Infof("%s listening on http://%s%s", what, ln.Addr(), path)
+	go func() {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Errorf("%s server: %v", what, err)
+		}
+	}()
+	return srv, nil
 }

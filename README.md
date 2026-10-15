@@ -46,7 +46,36 @@ Other MCP clients: run `whatsmeow-mcp` as a stdio server, e.g.
 
 Only one process can use a data directory at a time (it is locked), because two clients on the same
 linked device fight over the connection. To share one session between several tools, run one
-instance with `--rest` and have the others use the REST API.
+long-lived daemon and have MCP clients connect to it over HTTP (below), and scripts use `--rest`.
+
+### Daemon mode (MCP over HTTP)
+
+Run one instance as a service that holds the session, with no stdio MCP:
+
+```ini
+# ~/.config/systemd/user/whatsmeow-mcp.service
+[Unit]
+Description=WhatsApp MCP server (whatsmeow)
+After=network-online.target
+
+[Service]
+ExecStart=%h/go/bin/whatsmeow-mcp --no-mcp --rest :8080 --mcp-http :8090
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+```
+
+```sh
+whatsmeow-mcp login            # pair once, before starting the service
+systemctl --user daemon-reload
+systemctl --user enable --now whatsmeow-mcp
+claude mcp add --transport http whatsapp http://127.0.0.1:8090/mcp
+```
+
+The MCP endpoint is `/mcp` (Streamable HTTP). It has no authentication, so keep it on loopback
+(a bare `:8090` binds to `127.0.0.1`).
 
 ## Tools
 
@@ -79,7 +108,8 @@ code (`+1 555 0100`) or JIDs (`15550100@s.whatsapp.net`, `123456789@lid`, `12345
 |---|---|---|
 | `--data-dir` | `~/.local/share/whatsmeow-mcp` | Session (`whatsapp.db`), history (`messages.db`), downloads (`media/`) |
 | `--rest ADDR` | off | Also serve the REST API; a bare `:8080` binds to `127.0.0.1` |
-| `--no-mcp` | false | Daemon mode (REST only, no stdio) |
+| `--mcp-http ADDR` | off | Also serve MCP over Streamable HTTP at `/mcp`; a bare `:8090` binds to `127.0.0.1` |
+| `--no-mcp` | false | Daemon mode: no stdio MCP (use with `--rest` and/or `--mcp-http`) |
 | `--no-connect` | false | Offline: read local history, never connect |
 | `--pair-phone` | | Pair with a code instead of a QR |
 | `--log-level` | INFO | Logs always go to stderr; stdout is the MCP channel |
