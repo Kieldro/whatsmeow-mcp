@@ -6,8 +6,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 
+	"github.com/Kieldro/whatsmeow-mcp/internal/ops"
 	"github.com/Kieldro/whatsmeow-mcp/internal/wa"
 )
 
@@ -322,6 +324,32 @@ func Handler(svc *wa.Service) http.Handler {
 	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, svc.Status())
 	})
+
+	// Every shared operation is also POST /api/<tool name>, taking the same
+	// JSON arguments as the MCP tool and answering {"success": true, "result": …}.
+	for _, op := range ops.All() {
+		mux.HandleFunc("/api/"+op.Name, func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"success": false, "message": "POST only"})
+				return
+			}
+			body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"success": false, "message": err.Error(), "error": err.Error()})
+				return
+			}
+			out, err := op.Call(r.Context(), svc, body)
+			if err != nil {
+				code := http.StatusInternalServerError
+				if ops.IsInvalidInput(err) {
+					code = http.StatusBadRequest
+				}
+				writeJSON(w, code, map[string]any{"success": false, "message": err.Error(), "error": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"success": true, "result": out})
+		})
+	}
 	return mux
 }
 

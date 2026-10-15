@@ -38,6 +38,9 @@ type Service struct {
 	offline   bool
 
 	loginMu sync.Mutex
+
+	presenceMu sync.Mutex
+	presence   map[string]LastSeen
 }
 
 // Options configures New.
@@ -81,6 +84,7 @@ func New(ctx context.Context, opts Options) (*Service, error) {
 		container: container,
 		log:       opts.Log,
 		offline:   opts.Offline,
+		presence:  map[string]LastSeen{},
 	}
 	s.Client.AddEventHandler(s.handleEvent)
 	return s, nil
@@ -197,6 +201,8 @@ func (s *Service) handleEvent(evt any) {
 		s.handleMessage(ctx, v)
 	case *events.HistorySync:
 		s.handleHistorySync(ctx, v)
+	case *events.Presence:
+		s.recordPresence(v)
 	case *events.Connected:
 		s.log.Infof("Connected to WhatsApp")
 	case *events.LoggedOut:

@@ -189,6 +189,12 @@ func (s *Store) UpdateContent(chatJID, id, content string) error {
 	return err
 }
 
+// DeleteMessage removes a stored message (used for delete-for-me).
+func (s *Store) DeleteMessage(chatJID, id string) error {
+	_, err := s.db.Exec(`DELETE FROM messages WHERE id = ? AND chat_jid = ?`, id, chatJID)
+	return err
+}
+
 const msgColumns = `m.id, m.chat_jid, COALESCE(c.name, ''), COALESCE(m.sender, ''), COALESCE(m.content, ''),
 	m.timestamp, COALESCE(m.is_from_me, 0), COALESCE(m.media_type, ''), COALESCE(m.filename, ''),
 	COALESCE(m.url, ''), COALESCE(m.direct_path, ''), m.media_key, m.file_sha256, m.file_enc_sha256,

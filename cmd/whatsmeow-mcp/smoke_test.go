@@ -13,11 +13,21 @@ import (
 	"time"
 )
 
+// expectedTools is every MCP tool, sorted (68).
 var expectedTools = []string{
-	"connection_status", "create_group", "create_poll", "delete_message", "download_media", "edit_message",
-	"get_chat", "get_message_context", "group_info", "list_chats", "list_groups", "list_messages",
-	"mark_read", "pin_message", "poll_results", "react", "rename_group", "request_history",
-	"search_contacts", "send_audio_message", "send_file", "send_message", "update_group_participants",
+	"archive_chat", "block_contact", "connection_status", "create_group", "create_poll", "delete_message",
+	"delete_message_for_me", "download_media", "edit_message", "follow_newsletter", "forward_message",
+	"get_chat", "get_group_info_from_link", "get_group_invite_link", "get_last_seen", "get_message_context",
+	"get_privacy_settings", "get_profile_picture", "get_user_info", "group_info", "is_on_whatsapp",
+	"join_group_with_link", "leave_group", "list_blocklist", "list_chats", "list_communities",
+	"list_community_groups", "list_group_join_requests", "list_groups", "list_messages", "list_newsletters",
+	"list_statuses", "mark_chat_read", "mark_read", "mute_chat", "newsletter_info", "newsletter_messages",
+	"pin_chat", "pin_message", "poll_results", "post_media_status", "post_text_status", "react", "rename_group",
+	"request_history", "search_contacts", "send_audio_message", "send_chat_presence", "send_contact_card",
+	"send_file", "send_location", "send_message", "send_presence", "send_sticker", "set_disappearing_timer",
+	"set_group_announce", "set_group_description", "set_group_locked", "set_group_photo", "set_privacy_setting",
+	"set_profile_picture", "set_status_message", "star_message", "subscribe_presence", "unblock_contact",
+	"unfollow_newsletter", "update_group_join_requests", "update_group_participants",
 }
 
 type rpcClient struct {
@@ -159,6 +169,17 @@ func TestMCPStdioSmoke(t *testing.T) {
 	}
 	if r := callTool("send_message", map[string]any{"recipient": "+1 555 0100"}); !r.IsError {
 		t.Fatalf("missing required arg should be rejected: %+v", r)
+	}
+	if r := callTool("send_location", map[string]any{"recipient": "+1 555 0100", "latitude": 40.7, "longitude": -74.0}); !r.IsError ||
+		!strings.Contains(r.Content[0].Text, "not connected") {
+		t.Fatalf("send_location offline should fail cleanly: %+v", r)
+	}
+	if r := callTool("set_disappearing_timer", map[string]any{"chat_jid": "+1 555 0100", "timer": "3 days"}); !r.IsError ||
+		!strings.Contains(r.Content[0].Text, "off, 24h, 7d or 90d") {
+		t.Fatalf("bad timer should be rejected before connecting: %+v", r)
+	}
+	if r := callTool("list_statuses", map[string]any{}); r.IsError {
+		t.Fatalf("list_statuses offline: %+v", r)
 	}
 	if r := callTool("connection_status", map[string]any{}); r.IsError || !strings.Contains(r.Content[0].Text, `"offline": true`) {
 		t.Fatalf("connection_status: %+v", r)

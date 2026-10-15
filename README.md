@@ -98,6 +98,40 @@ The MCP endpoint is `/mcp` (Streamable HTTP). It has no authentication, so keep 
 | `pin_message` | Pin/unpin for 1, 7 or 30 days |
 | `request_history` | Ask the phone for older messages of a chat |
 | `connection_status` | Is the session paired and connected? |
+| **Groups** | |
+| `get_group_invite_link` | Invite link (`reset` revokes the old one) |
+| `get_group_info_from_link` / `join_group_with_link` | Preview a group from its link, or join it |
+| `leave_group` | Leave a group |
+| `set_group_description` / `set_group_photo` | Change description or photo (JPEG; omit path to remove) |
+| `set_group_announce` / `set_group_locked` | Admins-only messages / admins-only info edits |
+| `list_group_join_requests` / `update_group_join_requests` | Pending join requests; approve or reject |
+| `list_communities` / `list_community_groups` | Communities and their linked groups |
+| **Contacts** | |
+| `is_on_whatsapp` | Which numbers have WhatsApp (batch, max 50) |
+| `get_user_info` | About text, picture ID, LID, business name |
+| `get_profile_picture` | Save a user/group photo under `media/profile_pictures/` |
+| `block_contact` / `unblock_contact` / `list_blocklist` | Block list management |
+| **Messages** | |
+| `send_location` / `send_contact_card` / `send_sticker` | Location pin, vCard from name + number, `.webp` sticker |
+| `forward_message` | Re-send a stored text or media message, marked as forwarded |
+| `star_message` / `delete_message_for_me` | Star/unstar; delete only on your devices |
+| **Presence** | |
+| `send_presence` / `send_chat_presence` | Online/offline; typing, recording, paused |
+| `subscribe_presence` / `get_last_seen` | Subscribe to a user's presence; read the latest update |
+| **Chats** (synced to your phone) | |
+| `archive_chat` / `pin_chat` / `mute_chat` / `mark_chat_read` | Archive, pin, mute (`8h`, `1w`, `forever`), read/unread |
+| `set_disappearing_timer` | `off`, `24h`, `7d`, `90d` |
+| **Status** | |
+| `post_text_status` / `post_media_status` / `list_statuses` | Post text or image/video stories; list stored ones |
+| **Channels** | |
+| `list_newsletters` / `newsletter_info` / `newsletter_messages` | Followed channels, channel details, recent posts |
+| `follow_newsletter` / `unfollow_newsletter` | Follow or unfollow |
+| **Profile** | |
+| `set_status_message` / `set_profile_picture` | About text; own photo (JPEG) |
+| `get_privacy_settings` / `set_privacy_setting` | Last seen, online, profile, read receipts, group add, … |
+
+Tools that change things others can see (join/leave, block, status posts, group and privacy
+settings) are annotated as destructive and say so in their descriptions, so clients can ask first.
 
 Every send returns the new message `id` and `chat_jid`. Recipients can be phone numbers with country
 code (`+1 555 0100`) or JIDs (`15550100@s.whatsapp.net`, `123456789@lid`, `123456789-123@g.us`).
@@ -129,6 +163,12 @@ working. All are `POST` with a JSON body:
 `/api/rename_group` `{jid, name}` · `/api/mark_read` `{chat_jid, ids, sender?}` ·
 `/api/history` `{chat_jid, count}` (`?latest=1`) · `/api/download` `{message_id, chat_jid}` ·
 `GET /api/status`.
+
+Every tool in the Groups, Contacts, Messages (new), Presence, Chats, Status, Channels and Profile
+sections above is also `POST /api/<tool name>` with the same JSON arguments as the MCP tool, e.g.
+`/api/send_location` `{recipient, latitude, longitude, name?}`. It answers
+`{"success": true, "result": …}`, or `{"success": false, "error": …}` with 400 for bad input and 500
+for WhatsApp errors.
 
 The REST API has no authentication. Keep it on localhost.
 

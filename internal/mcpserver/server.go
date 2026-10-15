@@ -9,6 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/Kieldro/whatsmeow-mcp/internal/ops"
 	"github.com/Kieldro/whatsmeow-mcp/internal/store"
 	"github.com/Kieldro/whatsmeow-mcp/internal/wa"
 )
@@ -462,5 +463,6 @@ func New(svc *wa.Service, version string) *mcp.Server {
 			return result(svc.Status())
 		})
 
+	ops.Register(srv, svc)
 	return srv
 }
