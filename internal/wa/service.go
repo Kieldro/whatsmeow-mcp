@@ -203,6 +203,12 @@ func (s *Service) handleEvent(evt any) {
 		s.handleHistorySync(ctx, v)
 	case *events.Presence:
 		s.recordPresence(v)
+	case *events.Receipt:
+		s.handleReceipt(v)
+	case *events.DeleteForMe:
+		s.handleDeleteForMe(v)
+	case *events.CallOffer, *events.CallOfferNotice, *events.CallAccept, *events.CallReject, *events.CallTerminate:
+		s.handleCall(v)
 	case *events.Connected:
 		s.log.Infof("Connected to WhatsApp")
 	case *events.LoggedOut:

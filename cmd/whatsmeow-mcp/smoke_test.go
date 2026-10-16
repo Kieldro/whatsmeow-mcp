@@ -13,21 +13,26 @@ import (
 	"time"
 )
 
-// expectedTools is every MCP tool, sorted (68).
+// expectedTools is every MCP tool, sorted (86).
 var expectedTools = []string{
-	"archive_chat", "block_contact", "connection_status", "create_group", "create_poll", "delete_message",
-	"delete_message_for_me", "download_media", "edit_message", "follow_newsletter", "forward_message",
-	"get_chat", "get_group_info_from_link", "get_group_invite_link", "get_last_seen", "get_message_context",
-	"get_privacy_settings", "get_profile_picture", "get_user_info", "group_info", "is_on_whatsapp",
-	"join_group_with_link", "leave_group", "list_blocklist", "list_chats", "list_communities",
+	"archive_chat", "block_contact", "connection_status", "create_community", "create_group", "create_newsletter",
+	"create_poll", "delete_message", "delete_message_for_me", "download_media", "edit_message",
+	"follow_newsletter", "forward_message", "get_business_profile", "get_chat", "get_contact_qr_link",
+	"get_group_info_from_link", "get_group_invite_link", "get_last_seen", "get_message_context",
+	"get_message_reactions", "get_message_receipts", "get_privacy_settings", "get_profile_picture",
+	"get_status_privacy", "get_user_info", "group_info", "is_on_whatsapp", "join_group_with_link", "leave_group",
+	"link_group_to_community", "list_blocklist", "list_calls", "list_chats", "list_communities",
 	"list_community_groups", "list_group_join_requests", "list_groups", "list_messages", "list_newsletters",
-	"list_statuses", "mark_chat_read", "mark_read", "mute_chat", "newsletter_info", "newsletter_messages",
-	"pin_chat", "pin_message", "poll_results", "post_media_status", "post_text_status", "react", "rename_group",
-	"request_history", "search_contacts", "send_audio_message", "send_chat_presence", "send_contact_card",
-	"send_file", "send_location", "send_message", "send_presence", "send_sticker", "set_disappearing_timer",
-	"set_group_announce", "set_group_description", "set_group_locked", "set_group_photo", "set_privacy_setting",
+	"list_statuses", "mark_chat_read", "mark_read", "mute_chat", "mute_newsletter", "newsletter_info",
+	"newsletter_messages", "pin_chat", "pin_message", "poll_results", "post_media_status", "post_text_status",
+	"react", "react_newsletter", "reject_call", "rename_group", "request_history", "resolve_link",
+	"search_contacts", "send_audio_message", "send_chat_presence", "send_contact_card", "send_file",
+	"send_location", "send_message", "send_presence", "send_sticker", "set_default_disappearing_timer",
+	"set_disappearing_timer", "set_group_announce", "set_group_description", "set_group_join_approval",
+	"set_group_locked", "set_group_member_add_mode", "set_group_photo", "set_privacy_setting",
 	"set_profile_picture", "set_status_message", "star_message", "subscribe_presence", "unblock_contact",
-	"unfollow_newsletter", "update_group_join_requests", "update_group_participants",
+	"unfollow_newsletter", "unlink_group_from_community", "update_group_join_requests",
+	"update_group_participants", "vote_poll",
 }
 
 type rpcClient struct {
@@ -177,6 +182,16 @@ func TestMCPStdioSmoke(t *testing.T) {
 	if r := callTool("set_disappearing_timer", map[string]any{"chat_jid": "+1 555 0100", "timer": "3 days"}); !r.IsError ||
 		!strings.Contains(r.Content[0].Text, "off, 24h, 7d or 90d") {
 		t.Fatalf("bad timer should be rejected before connecting: %+v", r)
+	}
+	if r := callTool("get_message_receipts", map[string]any{"message_ids": []string{"ABC"}}); r.IsError ||
+		!strings.Contains(r.Content[0].Text, `"id": "ABC"`) {
+		t.Fatalf("get_message_receipts offline: %+v", r)
+	}
+	if r := callTool("get_message_receipts", map[string]any{}); !r.IsError {
+		t.Fatalf("get_message_receipts without chat or ids should fail: %+v", r)
+	}
+	if r := callTool("list_calls", map[string]any{}); r.IsError {
+		t.Fatalf("list_calls offline: %+v", r)
 	}
 	if r := callTool("list_statuses", map[string]any{}); r.IsError {
 		t.Fatalf("list_statuses offline: %+v", r)

@@ -50,10 +50,11 @@ func Handler(svc *wa.Service) http.Handler {
 	}
 
 	type sendReq struct {
-		Recipient string `json:"recipient"`
-		Message   string `json:"message"`
-		MediaPath string `json:"media_path"`
-		ReplyTo   string `json:"reply_to"`
+		Recipient string   `json:"recipient"`
+		Message   string   `json:"message"`
+		MediaPath string   `json:"media_path"`
+		ReplyTo   string   `json:"reply_to"`
+		Mentions  []string `json:"mentions"`
 	}
 	post("/api/send", func() any { return &sendReq{} }, func(ctx context.Context, _ *http.Request, r any) (map[string]any, int) {
 		req := r.(*sendReq)
@@ -65,7 +66,7 @@ func Handler(svc *wa.Service) http.Handler {
 		if req.MediaPath != "" {
 			s, err = svc.SendFile(ctx, req.Recipient, req.MediaPath, req.Message)
 		} else {
-			s, err = svc.SendText(ctx, req.Recipient, req.Message, req.ReplyTo)
+			s, err = svc.SendText(ctx, req.Recipient, req.Message, req.ReplyTo, req.Mentions...)
 		}
 		if err != nil {
 			return fail(err)

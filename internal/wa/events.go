@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/Kieldro/whatsmeow-mcp/internal/store"
 )
@@ -35,11 +37,63 @@ func extractText(m *waE2E.Message) string {
 		return fmt.Sprintf("[location] %s %.6f,%.6f", l.GetName(), l.GetDegreesLatitude(), l.GetDegreesLongitude())
 	case m.GetContactMessage() != nil:
 		return "[contact] " + m.GetContactMessage().GetDisplayName()
+	case m.GetContactsArrayMessage() != nil:
+		var names []string
+		for _, c := range m.GetContactsArrayMessage().GetContacts() {
+			names = append(names, c.GetDisplayName())
+		}
+		return "[contacts] " + strings.Join(names, ", ")
+	case m.GetLiveLocationMessage() != nil:
+		l := m.GetLiveLocationMessage()
+		return strings.TrimSpace(fmt.Sprintf("[live location] %.6f,%.6f %s", l.GetDegreesLatitude(), l.GetDegreesLongitude(), l.GetCaption()))
+	case m.GetGroupInviteMessage() != nil:
+		g := m.GetGroupInviteMessage()
+		return strings.TrimSpace(fmt.Sprintf("[group invite] %s %s", g.GetGroupName(), g.GetCaption()))
+	case m.GetEventMessage() != nil:
+		e := m.GetEventMessage()
+		out := "[event] " + e.GetName()
+		if st := e.GetStartTime(); st > 0 {
+			out += " at " + time.Unix(st, 0).UTC().Format(time.RFC3339)
+		}
+		if loc := e.GetLocation().GetName(); loc != "" {
+			out += " @ " + loc
+		}
+		if d := e.GetDescription(); d != "" {
+			out += ": " + d
+		}
+		return out
+	case m.GetPtvMessage() != nil:
+		return m.GetPtvMessage().GetCaption()
 	}
 	if q, opts, ok := pollCreation(m); ok {
 		return fmt.Sprintf("[poll] %s (%s)", q, strings.Join(opts, " / "))
 	}
 	return ""
+}
+
+// contextInfo returns the reply/mention context of a message, whichever
+// message type it is (every content type has a contextInfo field).
+func contextInfo(m *waE2E.Message) *waE2E.ContextInfo {
+	if m == nil {
+		return nil
+	}
+	var out *waE2E.ContextInfo
+	m.ProtoReflect().Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
+		if fd.Kind() != protoreflect.MessageKind || fd.IsList() || fd.IsMap() {
+			return true
+		}
+		sub := v.Message()
+		f := sub.Descriptor().Fields().ByName("contextInfo")
+		if f == nil || f.Kind() != protoreflect.MessageKind || !sub.Has(f) {
+			return true
+		}
+		if ci, ok := sub.Get(f).Message().Interface().(*waE2E.ContextInfo); ok {
+			out = ci
+			return false
+		}
+		return true
+	})
+	return out
 }
 
 // pollCreation extracts the question and options from any poll-creation variant.
@@ -79,6 +133,9 @@ func extractMedia(m *waE2E.Message, id string) (mediaInfo, bool) {
 		return mediaInfo{"image", "image_" + safeID + extFor(x.GetMimetype(), ".jpg"), x.GetURL(), x.GetDirectPath(), x.GetMediaKey(), x.GetFileSHA256(), x.GetFileEncSHA256(), x.GetFileLength()}, true
 	case m.GetVideoMessage() != nil:
 		x := m.GetVideoMessage()
+		return mediaInfo{"video", "video_" + safeID + extFor(x.GetMimetype(), ".mp4"), x.GetURL(), x.GetDirectPath(), x.GetMediaKey(), x.GetFileSHA256(), x.GetFileEncSHA256(), x.GetFileLength()}, true
+	case m.GetPtvMessage() != nil: // round "video note"
+		x := m.GetPtvMessage()
 		return mediaInfo{"video", "video_" + safeID + extFor(x.GetMimetype(), ".mp4"), x.GetURL(), x.GetDirectPath(), x.GetMediaKey(), x.GetFileSHA256(), x.GetFileEncSHA256(), x.GetFileLength()}, true
 	case m.GetAudioMessage() != nil:
 		x := m.GetAudioMessage()
@@ -155,6 +212,10 @@ func (s *Service) recordMessage(ctx context.Context, evt *events.Message, chatNa
 		return
 	}
 
+	if s.recordReaction(ctx, evt) {
+		return
+	}
+
 	if q, opts, ok := pollCreation(msg); ok {
 		_ = s.Store.SavePoll(store.Poll{ID: info.ID, ChatJID: chatJID, Question: q, Options: opts}, info.Timestamp)
 	}
@@ -176,7 +237,7 @@ func (s *Service) recordMessage(ctx context.Context, evt *events.Message, chatNa
 	}
 	m := store.Message{
 		ID: info.ID, ChatJID: chatJID, Sender: sender, Content: content,
-		Timestamp: info.Timestamp, IsFromMe: info.IsFromMe,
+		Timestamp: info.Timestamp, IsFromMe: info.IsFromMe, QuotedID: quotedID(msg),
 	}
 	if hasMedia {
 		m.MediaType, m.Filename = media.Type, media.Filename

@@ -42,7 +42,7 @@ func (s *Service) send(ctx context.Context, chat types.JID, msg *waE2E.Message) 
 	if content != "" || hasMedia {
 		_ = s.Store.UpsertChat(out.ChatJID, s.chatNameFor(ctx, chat), resp.Timestamp)
 		m := store.Message{ID: resp.ID, ChatJID: out.ChatJID, Sender: s.Client.Store.ID.ToNonAD().String(),
-			Content: content, Timestamp: resp.Timestamp, IsFromMe: true}
+			Content: content, Timestamp: resp.Timestamp, IsFromMe: true, QuotedID: quotedID(msg)}
 		if hasMedia {
 			m.MediaType, m.Filename = media.Type, media.Filename
 			m.URL, m.DirectPath = media.URL, media.DirectPath
@@ -76,8 +76,9 @@ func (s *Service) targetSender(chat types.JID, id string) (types.JID, *store.Mes
 	return types.EmptyJID, &m
 }
 
-// SendText sends a text message, optionally as a quoted reply to replyTo.
-func (s *Service) SendText(ctx context.Context, recipient, text, replyTo string) (Sent, error) {
+// SendText sends a text message, optionally as a quoted reply to replyTo
+// and mentioning users (phone numbers or JIDs).
+func (s *Service) SendText(ctx context.Context, recipient, text, replyTo string, mentions ...string) (Sent, error) {
 	chat, err := SendTarget(recipient)
 	if err != nil {
 		return Sent{}, err
@@ -85,18 +86,29 @@ func (s *Service) SendText(ctx context.Context, recipient, text, replyTo string)
 	if text == "" {
 		return Sent{}, errors.New("message text is empty")
 	}
-	if replyTo == "" {
+	if replyTo == "" && len(mentions) == 0 {
 		return s.send(ctx, chat, &waE2E.Message{Conversation: proto.String(text)})
 	}
-	sender, quoted := s.targetSender(chat, replyTo)
-	ci := &waE2E.ContextInfo{StanzaID: proto.String(replyTo)}
-	if !sender.IsEmpty() {
-		ci.Participant = proto.String(sender.String())
+	ci := &waE2E.ContextInfo{}
+	if replyTo != "" {
+		sender, quoted := s.targetSender(chat, replyTo)
+		ci.StanzaID = proto.String(replyTo)
+		if !sender.IsEmpty() {
+			ci.Participant = proto.String(sender.String())
+		}
+		if quoted != nil {
+			ci.QuotedMessage = &waE2E.Message{Conversation: proto.String(quoted.Content)}
+		} else {
+			ci.QuotedMessage = &waE2E.Message{Conversation: proto.String("")}
+		}
 	}
-	if quoted != nil {
-		ci.QuotedMessage = &waE2E.Message{Conversation: proto.String(quoted.Content)}
-	} else {
-		ci.QuotedMessage = &waE2E.Message{Conversation: proto.String("")}
+	if len(mentions) > 0 {
+		if err := s.Ready(); err != nil {
+			return Sent{}, err
+		}
+		if text, ci.MentionedJID, err = s.mentions(ctx, chat, text, mentions); err != nil {
+			return Sent{}, err
+		}
 	}
 	return s.send(ctx, chat, &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
 		Text: proto.String(text), ContextInfo: ci,
@@ -260,8 +272,13 @@ func (s *Service) React(ctx context.Context, chatJID, id, emoji string) error {
 		return err
 	}
 	sender, _ := s.targetSender(chat, id)
-	_, err = s.Client.SendMessage(ctx, chat, s.Client.BuildReaction(chat, sender, id, emoji))
-	return err
+	resp, err := s.Client.SendMessage(ctx, chat, s.Client.BuildReaction(chat, sender, id, emoji))
+	if err != nil {
+		return err
+	}
+	_ = s.Store.SaveReaction(store.Reaction{MessageID: id, ChatJID: chat.String(), Sender: s.ownJID().String(),
+		Emoji: emoji, Timestamp: resp.Timestamp})
+	return nil
 }
 
 // Pin pins (or unpins) a message for everyone in the chat.

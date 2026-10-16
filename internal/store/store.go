@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS poll_votes (
 );
 CREATE INDEX IF NOT EXISTS idx_messages_chat_ts ON messages(chat_jid, timestamp);
 CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(timestamp);
-`
+` + activitySchema
 
 // Store wraps the messages database.
 type Store struct {
@@ -88,6 +88,8 @@ type Message struct {
 	IsFromMe  bool
 	MediaType string
 	Filename  string
+	// QuotedID is the id of the message this one replies to, if any.
+	QuotedID string
 
 	URL           string
 	DirectPath    string
@@ -107,11 +109,13 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("create tables: %w", err)
 	}
-	// Migration for databases created by the original bridge.
-	if _, err := db.Exec(`ALTER TABLE messages ADD COLUMN direct_path TEXT`); err != nil &&
-		!strings.Contains(err.Error(), "duplicate column") {
-		db.Close()
-		return nil, fmt.Errorf("migrate messages: %w", err)
+	// Migrations for databases created by the original bridge or older versions.
+	for _, col := range []string{"direct_path", "quoted_id"} {
+		if _, err := db.Exec(`ALTER TABLE messages ADD COLUMN ` + col + ` TEXT`); err != nil &&
+			!strings.Contains(err.Error(), "duplicate column") {
+			db.Close()
+			return nil, fmt.Errorf("migrate messages: %w", err)
+		}
 	}
 	return &Store{db: db}, nil
 }
@@ -176,10 +180,10 @@ func (s *Store) StoreMessage(m Message) error {
 	_, err := s.db.Exec(`
 		INSERT OR REPLACE INTO messages
 		(id, chat_jid, sender, content, timestamp, is_from_me, media_type, filename,
-		 url, direct_path, media_key, file_sha256, file_enc_sha256, file_length)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 url, direct_path, media_key, file_sha256, file_enc_sha256, file_length, quoted_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.ChatJID, m.Sender, m.Content, m.Timestamp.UTC(), m.IsFromMe, m.MediaType, m.Filename,
-		m.URL, m.DirectPath, m.MediaKey, m.FileSHA256, m.FileEncSHA256, m.FileLength)
+		m.URL, m.DirectPath, m.MediaKey, m.FileSHA256, m.FileEncSHA256, m.FileLength, m.QuotedID)
 	return err
 }
 
@@ -198,7 +202,7 @@ func (s *Store) DeleteMessage(chatJID, id string) error {
 const msgColumns = `m.id, m.chat_jid, COALESCE(c.name, ''), COALESCE(m.sender, ''), COALESCE(m.content, ''),
 	m.timestamp, COALESCE(m.is_from_me, 0), COALESCE(m.media_type, ''), COALESCE(m.filename, ''),
 	COALESCE(m.url, ''), COALESCE(m.direct_path, ''), m.media_key, m.file_sha256, m.file_enc_sha256,
-	COALESCE(m.file_length, 0)`
+	COALESCE(m.file_length, 0), COALESCE(m.quoted_id, '')`
 
 func scanMessages(rows *sql.Rows) ([]Message, error) {
 	defer rows.Close()
@@ -208,7 +212,7 @@ func scanMessages(rows *sql.Rows) ([]Message, error) {
 		var ts sql.NullTime
 		if err := rows.Scan(&m.ID, &m.ChatJID, &m.ChatName, &m.Sender, &m.Content, &ts, &m.IsFromMe,
 			&m.MediaType, &m.Filename, &m.URL, &m.DirectPath, &m.MediaKey, &m.FileSHA256,
-			&m.FileEncSHA256, &m.FileLength); err != nil {
+			&m.FileEncSHA256, &m.FileLength, &m.QuotedID); err != nil {
 			return nil, err
 		}
 		m.Timestamp = ts.Time
@@ -255,8 +259,10 @@ type MessageFilter struct {
 	IncludeStatus bool
 	// OnlyMedia restricts to messages with attachments.
 	OnlyMedia bool
-	Limit     int
-	Offset    int
+	// OnlyFromMe restricts to messages this account sent.
+	OnlyFromMe bool
+	Limit      int
+	Offset     int
 }
 
 // BuildMessageQuery turns a filter into SQL plus arguments. Results are newest first.
@@ -294,6 +300,9 @@ func BuildMessageQuery(f MessageFilter) (string, []any) {
 	}
 	if f.OnlyMedia {
 		where = append(where, "COALESCE(m.media_type, '') != ''")
+	}
+	if f.OnlyFromMe {
+		where = append(where, "m.is_from_me = 1")
 	}
 	q := `SELECT ` + msgColumns + ` FROM messages m LEFT JOIN chats c ON c.jid = m.chat_jid`
 	if len(where) > 0 {

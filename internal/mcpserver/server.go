@@ -83,9 +83,10 @@ type messageContextIn struct {
 }
 
 type sendMessageIn struct {
-	Recipient string `json:"recipient" jsonschema:"Phone number with country code (e.g. +1 555 0100) or a JID (…@s.whatsapp.net, …@lid, …@g.us)"`
-	Message   string `json:"message" jsonschema:"Text to send"`
-	ReplyTo   string `json:"reply_to,omitempty" jsonschema:"Optional message ID to quote-reply to (must be in the same chat)"`
+	Recipient string   `json:"recipient" jsonschema:"Phone number with country code (e.g. +1 555 0100) or a JID (…@s.whatsapp.net, …@lid, …@g.us)"`
+	Message   string   `json:"message" jsonschema:"Text to send"`
+	ReplyTo   string   `json:"reply_to,omitempty" jsonschema:"Optional message ID to quote-reply to (must be in the same chat)"`
+	Mentions  []string `json:"mentions,omitempty" jsonschema:"Optional phone numbers or JIDs to @mention (groups). Write @<number> in the text where each should appear; missing ones are appended"`
 }
 
 type sendFileIn struct {
@@ -241,6 +242,7 @@ func New(svc *wa.Service, version string) *mcp.Server {
 
 	mcp.AddTool(srv, tool("list_messages", "List messages",
 		"List stored WhatsApp messages, newest first, with sender phone and name resolved (LID senders are mapped to phone numbers). "+
+			"Each message shows reply_to (quoted message id), reactions, and for the user's own messages the receipt status (delivered/read/played; see get_message_receipts). "+
 			"Filter by chat, sender, text query and date range. WhatsApp Status posts (status@broadcast) are excluded unless include_status is true. "+
 			"Media messages show media_type; fetch the file with download_media.", true),
 		func(ctx context.Context, _ *mcp.CallToolRequest, in listMessagesIn) (*mcp.CallToolResult, any, error) {
@@ -279,9 +281,9 @@ func New(svc *wa.Service, version string) *mcp.Server {
 		})
 
 	mcp.AddTool(srv, tool("send_message", "Send message",
-		"Send a WhatsApp text message as the user, optionally as a quoted reply. Returns the new message id and chat JID. Confirm with the user before sending.", false),
+		"Send a WhatsApp text message as the user, optionally as a quoted reply and with @mentions. Returns the new message id and chat JID. Confirm with the user before sending.", false),
 		func(ctx context.Context, _ *mcp.CallToolRequest, in sendMessageIn) (*mcp.CallToolResult, any, error) {
-			s, err := svc.SendText(ctx, in.Recipient, in.Message, in.ReplyTo)
+			s, err := svc.SendText(ctx, in.Recipient, in.Message, in.ReplyTo, in.Mentions...)
 			if err != nil {
 				return nil, nil, err
 			}

@@ -33,7 +33,8 @@ func TestCatalog(t *testing.T) {
 			t.Errorf("%s: schema does not resolve: %v", o.Name, err)
 		}
 	}
-	for _, name := range []string{"leave_group", "block_contact", "join_group_with_link", "set_privacy_setting", "delete_message_for_me"} {
+	for _, name := range []string{"leave_group", "block_contact", "join_group_with_link", "set_privacy_setting", "delete_message_for_me",
+		"create_newsletter", "set_default_disappearing_timer", "link_group_to_community", "unlink_group_from_community"} {
 		found := false
 		for _, o := range All() {
 			if o.Name == name {
@@ -93,6 +94,19 @@ func TestCallOffline(t *testing.T) {
 	}
 	if v, ok := out.([]wa.MessageView); !ok || len(v) != 0 {
 		t.Fatalf("list_statuses on empty store = %#v", out)
+	}
+	rc, err := find(t, "get_message_receipts").Call(context.Background(), svc, []byte(`{"message_ids":["X1"]}`))
+	if v, ok := rc.([]wa.MessageReceipts); err != nil || !ok || len(v) != 1 || v[0].ID != "X1" || v[0].Status != "" {
+		t.Fatalf("get_message_receipts offline: %#v %v", rc, err)
+	}
+	if _, err := find(t, "get_message_receipts").Call(context.Background(), svc, nil); !IsInvalidInput(err) {
+		t.Fatalf("get_message_receipts without chat or ids: %v", err)
+	}
+	if _, err := find(t, "vote_poll").Call(context.Background(), svc, []byte(`{"poll_id":"nope","options":["a"]}`)); !IsInvalidInput(err) {
+		t.Fatalf("vote_poll unknown poll: %v", err)
+	}
+	if _, err := find(t, "reject_call").Call(context.Background(), svc, []byte(`{"call_id":"nope"}`)); !IsInvalidInput(err) {
+		t.Fatalf("reject_call unknown call: %v", err)
 	}
 	ls, err := find(t, "get_last_seen").Call(context.Background(), svc, []byte(`{"jid":"+1 555 0100"}`))
 	if err != nil || ls.(wa.LastSeen).Known {

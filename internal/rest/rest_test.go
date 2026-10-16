@@ -63,6 +63,12 @@ func TestOfflineEndpoints(t *testing.T) {
 	if code, _ := post("/api/mute_chat", `{"chat_jid":"15550100","duration":"soon"}`); code != 400 {
 		t.Fatalf("bad duration should be 400, got %d", code)
 	}
+	if code, out := post("/api/get_message_receipts", `{"message_ids":["A1"]}`); code != 200 || out["success"] != true {
+		t.Fatalf("get_message_receipts: %d %v", code, out)
+	}
+	if code, _ := post("/api/get_message_receipts", `{}`); code != 400 {
+		t.Fatalf("get_message_receipts without chat or ids should be 400, got %d", code)
+	}
 	if code, out := post("/api/list_statuses", ``); code != 200 || out["success"] != true {
 		t.Fatalf("list_statuses: %d %v", code, out)
 	}

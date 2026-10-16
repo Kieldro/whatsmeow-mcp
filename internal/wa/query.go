@@ -24,11 +24,17 @@ type MessageView struct {
 	Content   string    `json:"content,omitempty"`
 	MediaType string    `json:"media_type,omitempty"`
 	Filename  string    `json:"filename,omitempty"`
+	// ReplyTo is the id of the message this one quotes.
+	ReplyTo string `json:"reply_to,omitempty"`
+	// Status is the receipt state of the user's own messages: delivered,
+	// read or played (empty when no receipt has been recorded).
+	Status    string          `json:"status,omitempty"`
+	Reactions []ReactionBrief `json:"reactions,omitempty"`
 }
 
 func (s *Service) view(ctx context.Context, r *Resolver, m store.Message) MessageView {
 	v := MessageView{ID: m.ID, ChatJID: m.ChatJID, ChatName: m.ChatName, Timestamp: m.Timestamp,
-		FromMe: m.IsFromMe, Content: m.Content, MediaType: m.MediaType, Filename: m.Filename}
+		FromMe: m.IsFromMe, Content: m.Content, MediaType: m.MediaType, Filename: m.Filename, ReplyTo: m.QuotedID}
 	if m.IsFromMe {
 		v.Sender = Person{Name: "Me"}
 		if id := s.Client.Store.ID; id != nil {
@@ -116,6 +122,7 @@ func (s *Service) ListMessages(ctx context.Context, q MessageQuery) ([]MessageVi
 	for _, m := range msgs {
 		out = append(out, s.view(ctx, r, m))
 	}
+	s.enrich(ctx, r, out)
 	return out, nil
 }
 
@@ -152,6 +159,9 @@ func (s *Service) GetMessageContext(ctx context.Context, chat, id string, before
 	for _, n := range next {
 		out.After = append(out.After, s.view(ctx, r, n))
 	}
+	all := append(append([]MessageView{out.Message}, out.Before...), out.After...)
+	s.enrich(ctx, r, all)
+	out.Message, out.Before, out.After = all[0], all[1:1+len(out.Before)], all[1+len(out.Before):]
 	return out, nil
 }
 

@@ -83,21 +83,25 @@ The MCP endpoint is `/mcp` (Streamable HTTP). It has no authentication, so keep 
 |---|---|
 | `search_contacts` | Find people by name or number (stored chats + synced address book) |
 | `list_chats` / `get_chat` | Chats with last message; filter by name, groups/direct |
-| `list_messages` | Filter by chat, sender, text, date range, media; resolves LID senders to phone + name; excludes Status (`status@broadcast`) unless asked |
+| `list_messages` | Filter by chat, sender, text, date range, media; resolves LID senders to phone + name; shows `reply_to`, reactions and, for your own messages, receipt `status` (delivered/read/played); excludes Status (`status@broadcast`) unless asked |
 | `get_message_context` | Messages around a given message |
-| `send_message` | Text, optionally as a quoted reply (`reply_to`) |
+| `send_message` | Text, optionally as a quoted reply (`reply_to`) and with `@mentions` |
 | `send_file` | Image, video, document or audio with caption |
 | `send_audio_message` | Voice note; converts to Ogg/Opus with ffmpeg when needed |
 | `download_media` | Save an attachment locally and return its path |
 | `edit_message` / `delete_message` | Edit or revoke your messages |
 | `react` | Emoji reaction (empty emoji removes it) |
-| `create_poll` / `poll_results` | Send polls; votes are decrypted and tallied |
+| `create_poll` / `poll_results` / `vote_poll` | Send polls, vote in them; votes are decrypted and tallied |
 | `list_groups` / `group_info` | Joined groups, members with phone/LID/admin flags |
 | `create_group` / `rename_group` / `update_group_participants` | Manage groups (add, remove, promote, demote) |
 | `mark_read` | Send read receipts |
 | `pin_message` | Pin/unpin for 1, 7 or 30 days |
 | `request_history` | Ask the phone for older messages of a chat |
 | `connection_status` | Is the session paired and connected? |
+| **Receipts, reactions, calls** (recorded from live events) | |
+| `get_message_receipts` | Delivered/read/played times per message and per reader (also for messages sent from your phone) |
+| `get_message_reactions` | Who reacted with what, per message |
+| `list_calls` / `reject_call` | Incoming calls (caller, audio/video, status); decline a ringing call |
 | **Groups** | |
 | `get_group_invite_link` | Invite link (`reset` revokes the old one) |
 | `get_group_info_from_link` / `join_group_with_link` | Preview a group from its link, or join it |
@@ -105,12 +109,16 @@ The MCP endpoint is `/mcp` (Streamable HTTP). It has no authentication, so keep 
 | `set_group_description` / `set_group_photo` | Change description or photo (JPEG; omit path to remove) |
 | `set_group_announce` / `set_group_locked` | Admins-only messages / admins-only info edits |
 | `list_group_join_requests` / `update_group_join_requests` | Pending join requests; approve or reject |
+| `set_group_join_approval` / `set_group_member_add_mode` | Require admin approval to join; who can add members |
 | `list_communities` / `list_community_groups` | Communities and their linked groups |
+| `create_community` / `link_group_to_community` / `unlink_group_from_community` | Create a community; add or remove groups |
 | **Contacts** | |
 | `is_on_whatsapp` | Which numbers have WhatsApp (batch, max 50) |
 | `get_user_info` | About text, picture ID, LID, business name |
 | `get_profile_picture` | Save a user/group photo under `media/profile_pictures/` |
 | `block_contact` / `unblock_contact` / `list_blocklist` | Block list management |
+| `get_business_profile` | Business address, email, categories, hours |
+| `get_contact_qr_link` / `resolve_link` | Your wa.me/qr link; who a wa.me/qr or wa.me/message link belongs to |
 | **Messages** | |
 | `send_location` / `send_contact_card` / `send_sticker` | Location pin, vCard from name + number, `.webp` sticker |
 | `forward_message` | Re-send a stored text or media message, marked as forwarded |
@@ -120,15 +128,20 @@ The MCP endpoint is `/mcp` (Streamable HTTP). It has no authentication, so keep 
 | `subscribe_presence` / `get_last_seen` | Subscribe to a user's presence; read the latest update |
 | **Chats** (synced to your phone) | |
 | `archive_chat` / `pin_chat` / `mute_chat` / `mark_chat_read` | Archive, pin, mute (`8h`, `1w`, `forever`), read/unread |
-| `set_disappearing_timer` | `off`, `24h`, `7d`, `90d` |
+| `set_disappearing_timer` / `set_default_disappearing_timer` | `off`, `24h`, `7d`, `90d`, per chat or default for new chats |
 | **Status** | |
 | `post_text_status` / `post_media_status` / `list_statuses` | Post text or image/video stories; list stored ones |
+| `get_status_privacy` | Who receives your Status posts |
 | **Channels** | |
 | `list_newsletters` / `newsletter_info` / `newsletter_messages` | Followed channels, channel details, recent posts |
-| `follow_newsletter` / `unfollow_newsletter` | Follow or unfollow |
+| `follow_newsletter` / `unfollow_newsletter` / `mute_newsletter` | Follow, unfollow, mute |
+| `react_newsletter` / `create_newsletter` | React to a post; create your own channel |
 | **Profile** | |
 | `set_status_message` / `set_profile_picture` | About text; own photo (JPEG) |
 | `get_privacy_settings` / `set_privacy_setting` | Last seen, online, profile, read receipts, group add, … |
+
+Receipts, reactions and calls are only known from the moment this server started recording them;
+WhatsApp delivers receipts to every linked device, so messages sent from your phone are covered too.
 
 Tools that change things others can see (join/leave, block, status posts, group and privacy
 settings) are annotated as destructive and say so in their descriptions, so clients can ask first.
@@ -154,7 +167,7 @@ code (`+1 555 0100`) or JIDs (`15550100@s.whatsapp.net`, `123456789@lid`, `12345
 [lharries/whatsapp-mcp](https://github.com/lharries/whatsapp-mcp) bridge, so existing scripts keep
 working. All are `POST` with a JSON body:
 
-`/api/send` `{recipient, message, media_path?, reply_to?}` ·
+`/api/send` `{recipient, message, media_path?, reply_to?, mentions?}` ·
 `/api/reply` `{chat_jid, id, message}` · `/api/edit` `{chat_jid, id, message}` ·
 `/api/react` `{chat_jid, id, emoji}` · `/api/revoke` `{chat_jid, id}` ·
 `/api/send_pinned` `{recipient, message}` · `/api/poll` `{recipient, question, options, multi}` ·
@@ -164,8 +177,8 @@ working. All are `POST` with a JSON body:
 `/api/history` `{chat_jid, count}` (`?latest=1`) · `/api/download` `{message_id, chat_jid}` ·
 `GET /api/status`.
 
-Every tool in the Groups, Contacts, Messages (new), Presence, Chats, Status, Channels and Profile
-sections above is also `POST /api/<tool name>` with the same JSON arguments as the MCP tool, e.g.
+Every tool in the Receipts, Groups, Contacts, Messages (new), Presence, Chats, Status, Channels and
+Profile sections above (plus `vote_poll`) is also `POST /api/<tool name>` with the same JSON arguments as the MCP tool, e.g.
 `/api/send_location` `{recipient, latitude, longitude, name?}`. It answers
 `{"success": true, "result": …}`, or `{"success": false, "error": …}` with 400 for bad input and 500
 for WhatsApp errors.
