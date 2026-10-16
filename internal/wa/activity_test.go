@@ -1,6 +1,7 @@
 package wa
 
 import (
+	"context"
 	"reflect"
 	"testing"
 	"time"
@@ -207,5 +208,43 @@ func TestLinkCode(t *testing.T) {
 	}
 	if _, err := linkCode("https://example.com/x/y", "https://wa.me/qr/"); err == nil {
 		t.Error("foreign link should be rejected")
+	}
+}
+
+func TestReplacedBackoff(t *testing.T) {
+	want := []time.Duration{time.Minute, 2 * time.Minute, 4 * time.Minute, 8 * time.Minute, 16 * time.Minute, 30 * time.Minute, 30 * time.Minute}
+	for i, w := range want {
+		if got := ReplacedBackoff(i + 1); got != w {
+			t.Errorf("ReplacedBackoff(%d) = %s, want %s", i+1, got, w)
+		}
+	}
+	if got := ReplacedBackoff(100); got != 30*time.Minute {
+		t.Errorf("ReplacedBackoff(100) = %s", got)
+	}
+}
+
+func TestStreamReplacedSchedulesReconnect(t *testing.T) {
+	svc, err := New(context.Background(), Options{DataDir: t.TempDir(), Offline: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.handleStreamReplaced()
+	svc.handleStreamReplaced()
+	svc.replacedMu.Lock()
+	n, timer := svc.replacedCount, svc.reconnectTimer
+	svc.replacedMu.Unlock()
+	if n != 2 || timer == nil {
+		t.Fatalf("count=%d timer=%v", n, timer)
+	}
+	if _, ok := svc.Status()["last_stream_replaced"]; !ok {
+		t.Error("status should report the replacement")
+	}
+	svc.Close()
+	if timer.Stop() {
+		t.Error("Close should stop the pending reconnect")
+	}
+	svc.handleStreamReplaced() // after Close: no new timer
+	if svc.reconnectTimer != timer {
+		t.Error("no reconnect may be scheduled after Close")
 	}
 }

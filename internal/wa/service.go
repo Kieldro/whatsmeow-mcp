@@ -41,6 +41,12 @@ type Service struct {
 
 	presenceMu sync.Mutex
 	presence   map[string]LastSeen
+
+	replacedMu     sync.Mutex
+	replacedCount  int
+	lastReplaced   time.Time
+	reconnectTimer *time.Timer
+	closed         bool
 }
 
 // Options configures New.
@@ -92,6 +98,12 @@ func New(ctx context.Context, opts Options) (*Service, error) {
 
 // Close disconnects and closes the databases.
 func (s *Service) Close() {
+	s.replacedMu.Lock()
+	s.closed = true
+	if s.reconnectTimer != nil {
+		s.reconnectTimer.Stop()
+	}
+	s.replacedMu.Unlock()
 	s.Client.Disconnect()
 	s.Store.Close()
 	s.container.Close()
@@ -119,6 +131,11 @@ func (s *Service) Status() map[string]any {
 	if id := s.Client.Store.ID; id != nil {
 		out["jid"] = id.ToNonAD().String()
 	}
+	s.replacedMu.Lock()
+	if !s.lastReplaced.IsZero() {
+		out["last_stream_replaced"] = s.lastReplaced
+	}
+	s.replacedMu.Unlock()
 	return out
 }
 
@@ -211,6 +228,8 @@ func (s *Service) handleEvent(evt any) {
 		s.handleCall(v)
 	case *events.Connected:
 		s.log.Infof("Connected to WhatsApp")
+	case *events.StreamReplaced:
+		s.handleStreamReplaced()
 	case *events.LoggedOut:
 		s.log.Warnf("Device was logged out; run `whatsmeow-mcp login` to pair again")
 	}
