@@ -62,6 +62,8 @@ func TestReactions(t *testing.T) {
 	save("a", "😂", base.Add(time.Minute))  // changed reaction
 	save("a", "👎", base.Add(-time.Minute)) // older event arriving late: ignored
 	save("b", "", base.Add(time.Hour))     // removed
+	// The same person's reaction stored under another form of the chat JID: newest wins.
+	_ = s.SaveReaction(Reaction{MessageID: "M", ChatJID: "other@lid", Sender: "a", Emoji: "🔥", Timestamp: base.Add(-time.Hour)})
 	got, err := s.Reactions([]string{"M"})
 	if err != nil {
 		t.Fatal(err)
@@ -80,6 +82,8 @@ func TestCalls(t *testing.T) {
 	if err := s.SaveCall(Call{ID: "X", Status: "ended", Reason: "timeout", Started: base, Updated: base.Add(30 * time.Second)}); err != nil {
 		t.Fatal(err)
 	}
+	// A late, repeated offer must not reopen an ended call.
+	_ = s.SaveCall(Call{ID: "X", Status: "ringing", Started: base, Updated: base.Add(time.Minute)})
 	_ = s.SaveCall(Call{ID: "Y", Caller: "15550101@s.whatsapp.net", Status: "ringing", Started: base.Add(time.Hour)})
 	c, err := s.GetCall("X")
 	if err != nil {

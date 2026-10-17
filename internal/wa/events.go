@@ -269,7 +269,11 @@ func (s *Service) recordPollVote(ctx context.Context, evt *events.Message, pollI
 		return
 	}
 	chosen := MapPollSelection(poll.Options, vote.GetSelectedOptions())
-	if err := s.Store.SaveVote(pollID, evt.Info.Chat.String(), evt.Info.Sender.ToNonAD().String(), chosen, evt.Info.Timestamp); err != nil {
+	voter := evt.Info.Sender.ToNonAD()
+	if evt.Info.IsFromMe || s.isOwnUser(voter) {
+		voter = s.ownJID() // same identity VotePoll records
+	}
+	if err := s.Store.SaveVote(pollID, evt.Info.Chat.String(), voter.String(), chosen, evt.Info.Timestamp); err != nil {
 		s.log.Warnf("store poll vote: %v", err)
 	}
 }

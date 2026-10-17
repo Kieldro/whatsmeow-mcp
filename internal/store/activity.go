@@ -176,8 +176,13 @@ func (s *Store) Reactions(ids []string) ([]Reaction, error) {
 		return nil, nil
 	}
 	ph, args := placeholders(ids, nil)
-	rows, err := s.db.Query(`SELECT msg_id, chat_jid, sender, emoji, timestamp FROM reactions
-		WHERE msg_id IN (`+ph+`) AND emoji != '' ORDER BY timestamp ASC`, args...)
+	// A chat can be addressed by phone number or LID, so the same person's
+	// reaction may be stored under both; only their newest one counts.
+	rows, err := s.db.Query(`SELECT r.msg_id, r.chat_jid, r.sender, r.emoji, r.timestamp FROM reactions r
+		WHERE r.msg_id IN (`+ph+`) AND r.emoji != '' AND NOT EXISTS (
+			SELECT 1 FROM reactions n WHERE n.msg_id = r.msg_id AND n.sender = r.sender AND n.chat_jid != r.chat_jid
+			AND n.timestamp > r.timestamp)
+		ORDER BY r.timestamp ASC`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -221,9 +226,11 @@ func (s *Store) SaveCall(c Call) error {
 			group_jid = COALESCE(NULLIF(excluded.group_jid, ''), calls.group_jid),
 			media = COALESCE(NULLIF(excluded.media, ''), calls.media),
 			is_group = calls.is_group OR excluded.is_group,
-			status = COALESCE(NULLIF(excluded.status, ''), calls.status),
+			status = CASE WHEN excluded.status = 'ringing' AND calls.status IN ('accepted', 'rejected', 'ended')
+				THEN calls.status ELSE COALESCE(NULLIF(excluded.status, ''), calls.status) END,
 			reason = COALESCE(NULLIF(excluded.reason, ''), calls.reason),
-			updated = excluded.updated`,
+			updated = CASE WHEN excluded.status = 'ringing' AND calls.status IN ('accepted', 'rejected', 'ended')
+				THEN calls.updated ELSE excluded.updated END`,
 		c.ID, c.Caller, c.GroupJID, c.Media, c.IsGroup, c.Status, c.Reason, c.Started.UTC(), c.Updated.UTC())
 	return err
 }
