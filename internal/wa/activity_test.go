@@ -56,6 +56,20 @@ func TestReceiptRows(t *testing.T) {
 			t.Errorf("receipt %q from %v (from_me=%v) should be skipped: %+v", r.Type, r.Sender, r.IsFromMe, got)
 		}
 	}
+	// In the self chat, receipts from this account's own devices count.
+	self := func(typ types.ReceiptType) *events.Receipt {
+		return &events.Receipt{MessageSource: types.MessageSource{Chat: me, Sender: types.JID{User: me.User, Server: me.Server, Device: 1}, IsFromMe: true},
+			MessageIDs: []string{"S"}, Timestamp: ts, Type: typ}
+	}
+	for typ, want := range map[types.ReceiptType]string{types.ReceiptTypeDelivered: "delivered", types.ReceiptTypeReadSelf: "read",
+		types.ReceiptTypeRead: "read", types.ReceiptTypePlayedSelf: "played", types.ReceiptTypeSender: "delivered"} {
+		if got := receiptRows(self(typ), isOwn); len(got) != 1 || got[0].Type != want || got[0].Reader != "15550199@s.whatsapp.net" {
+			t.Errorf("self-chat %q receipt = %+v, want type %s", typ, got, want)
+		}
+	}
+	if got := receiptRows(self(types.ReceiptTypeRetry), isOwn); len(got) != 0 {
+		t.Errorf("self-chat retry receipt should be skipped: %+v", got)
+	}
 	// Zero timestamps fall back to now.
 	r := rcpt(types.ReceiptTypeRead, alice, false, "A")
 	r.Timestamp = time.Time{}

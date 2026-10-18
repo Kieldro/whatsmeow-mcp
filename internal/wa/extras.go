@@ -37,6 +37,7 @@ func (s *Service) VotePoll(ctx context.Context, pollID string, options []string)
 	if err != nil {
 		return Sent{}, err
 	}
+	s.resolveRecipient(ctx, chat)
 	resp, err := s.Client.SendMessage(ctx, chat, msg)
 	if err != nil {
 		return Sent{}, err

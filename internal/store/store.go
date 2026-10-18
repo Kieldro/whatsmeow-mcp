@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS poll_votes (
 );
 CREATE INDEX IF NOT EXISTS idx_messages_chat_ts ON messages(chat_jid, timestamp);
 CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(timestamp);
-` + activitySchema
+` + activitySchema + identitySchema
 
 // Store wraps the messages database.
 type Store struct {

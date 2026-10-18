@@ -281,7 +281,7 @@ func New(svc *wa.Service, version string) *mcp.Server {
 		})
 
 	mcp.AddTool(srv, tool("send_message", "Send message",
-		"Send a WhatsApp text message as the user, optionally as a quoted reply and with @mentions. Returns the new message id and chat JID. Confirm with the user before sending.", false),
+		"Send a WhatsApp text message as the user, optionally as a quoted reply and with @mentions. Returns the new message id and chat JID; identity_changed (with old_lid/new_lid) is true when the recipient had re-registered WhatsApp and the stale LID mapping was replaced before sending. Confirm with the user before sending.", false),
 		func(ctx context.Context, _ *mcp.CallToolRequest, in sendMessageIn) (*mcp.CallToolResult, any, error) {
 			s, err := svc.SendText(ctx, in.Recipient, in.Message, in.ReplyTo, in.Mentions...)
 			if err != nil {

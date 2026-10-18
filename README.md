@@ -100,7 +100,9 @@ The MCP endpoint is `/mcp` (Streamable HTTP). It has no authentication, so keep 
 | `connection_status` | Is the session paired and connected? |
 | **Receipts, reactions, calls** (recorded from live events) | |
 | `get_message_receipts` | Delivered/read/played times per message and per reader (also for messages sent from your phone) |
+| `message_status` | One sent message: sent, delivered, read or played, with times |
 | `get_message_reactions` | Who reacted with what, per message |
+| `list_identity_changes` | Contacts with a new primary device or a new LID (old and new LID) |
 | `list_calls` / `reject_call` | Incoming calls (caller, audio/video, status); decline a ringing call |
 | **Groups** | |
 | `get_group_invite_link` | Invite link (`reset` revokes the old one) |

@@ -24,31 +24,56 @@ type Sent struct {
 	ID        string    `json:"id"`
 	ChatJID   string    `json:"chat_jid"`
 	Timestamp time.Time `json:"timestamp"`
+	// IdentityChanged is set when the recipient's LID on the server differed
+	// from the cached mapping; the mapping was updated and the message went
+	// to the new identity (OldLID -> NewLID).
+	IdentityChanged bool   `json:"identity_changed"`
+	OldLID          string `json:"old_lid,omitempty"`
+	NewLID          string `json:"new_lid,omitempty"`
+}
+
+// Fields returns the identity fields of s for hand-built JSON responses.
+func (s Sent) Fields() map[string]any {
+	out := map[string]any{"identity_changed": s.IdentityChanged}
+	if s.IdentityChanged {
+		out["old_lid"], out["new_lid"] = s.OldLID, s.NewLID
+	}
+	return out
 }
 
 // send sends msg and records it in the local store so it shows up in
-// list_messages and can be replied to, edited or reacted to later.
+// list_messages and message_status and can be replied to, edited or reacted
+// to later. A phone-number recipient's LID is re-checked first.
 func (s *Service) send(ctx context.Context, chat types.JID, msg *waE2E.Message) (Sent, error) {
 	if err := s.Ready(); err != nil {
 		return Sent{}, err
 	}
+	change, changed := s.resolveRecipient(ctx, chat)
 	resp, err := s.Client.SendMessage(ctx, chat, msg)
 	if err != nil {
 		return Sent{}, err
 	}
 	out := Sent{ID: resp.ID, ChatJID: chat.String(), Timestamp: resp.Timestamp}
+	if changed {
+		out.IdentityChanged, out.OldLID, out.NewLID = true, change.OldLID, change.NewLID
+	}
 	content := extractText(msg)
 	media, hasMedia := extractMedia(msg, resp.ID)
-	if content != "" || hasMedia {
-		_ = s.Store.UpsertChat(out.ChatJID, s.chatNameFor(ctx, chat), resp.Timestamp)
-		m := store.Message{ID: resp.ID, ChatJID: out.ChatJID, Sender: s.Client.Store.ID.ToNonAD().String(),
-			Content: content, Timestamp: resp.Timestamp, IsFromMe: true, QuotedID: quotedID(msg)}
-		if hasMedia {
-			m.MediaType, m.Filename = media.Type, media.Filename
-			m.URL, m.DirectPath = media.URL, media.DirectPath
-			m.MediaKey, m.FileSHA256, m.FileEncSHA256, m.FileLength = media.MediaKey, media.SHA256, media.EncSHA256, media.Length
-		}
-		_ = s.Store.StoreMessage(m)
+	if content == "" && !hasMedia && msg.GetStickerMessage() != nil {
+		content = "[sticker]"
+	}
+	if err := s.Store.UpsertChat(out.ChatJID, s.chatNameFor(ctx, chat), resp.Timestamp); err != nil {
+		s.log.Warnf("store sent chat: %v", err)
+	}
+	m := store.Message{ID: resp.ID, ChatJID: out.ChatJID, Sender: s.Client.Store.ID.ToNonAD().String(),
+		Content: content, Timestamp: resp.Timestamp, IsFromMe: true, QuotedID: quotedID(msg)}
+	if hasMedia {
+		m.MediaType, m.Filename = media.Type, media.Filename
+		m.URL, m.DirectPath = media.URL, media.DirectPath
+		m.MediaKey, m.FileSHA256, m.FileEncSHA256, m.FileLength = media.MediaKey, media.SHA256, media.EncSHA256, media.Length
+	}
+	if err := s.Store.StoreMessage(m); err != nil {
+		s.log.Warnf("store sent message %s: %v", resp.ID, err)
 	}
 	return out, nil
 }
@@ -231,6 +256,7 @@ func (s *Service) Edit(ctx context.Context, chatJID, id, text string) (Sent, err
 	if err := s.Ready(); err != nil {
 		return Sent{}, err
 	}
+	s.resolveRecipient(ctx, chat)
 	resp, err := s.Client.SendMessage(ctx, chat, s.Client.BuildEdit(chat, id, &waE2E.Message{Conversation: proto.String(text)}))
 	if err != nil {
 		return Sent{}, err
@@ -255,6 +281,7 @@ func (s *Service) Revoke(ctx context.Context, chatJID, id, sender string) error 
 			return err
 		}
 	}
+	s.resolveRecipient(ctx, chat)
 	if _, err := s.Client.SendMessage(ctx, chat, s.Client.BuildRevoke(chat, sj, id)); err != nil {
 		return err
 	}
@@ -271,6 +298,7 @@ func (s *Service) React(ctx context.Context, chatJID, id, emoji string) error {
 	if err := s.Ready(); err != nil {
 		return err
 	}
+	s.resolveRecipient(ctx, chat)
 	sender, _ := s.targetSender(chat, id)
 	resp, err := s.Client.SendMessage(ctx, chat, s.Client.BuildReaction(chat, sender, id, emoji))
 	if err != nil {
@@ -311,6 +339,7 @@ func (s *Service) Pin(ctx context.Context, chatJID, id string, days int, unpin b
 		}
 		msg.MessageContextInfo = &waE2E.MessageContextInfo{MessageAddOnDurationInSecs: proto.Uint32(uint32(days * 24 * 3600))}
 	}
+	s.resolveRecipient(ctx, chat)
 	_, err = s.Client.SendMessage(ctx, chat, msg)
 	return err
 }

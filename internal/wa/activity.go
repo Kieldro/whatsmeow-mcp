@@ -48,10 +48,29 @@ func storedReceiptType(t types.ReceiptType) (string, bool) {
 }
 
 // receiptRows converts a receipt event from another user into rows to store.
-// isOwn reports whether a JID is this account; receipts from it are skipped.
+// isOwn reports whether a JID is this account; receipts from it are skipped,
+// except in the self chat ("message yourself"), where this account's other
+// devices are the only readers.
 func receiptRows(evt *events.Receipt, isOwn func(types.JID) bool) []store.Receipt {
-	typ, ok := storedReceiptType(evt.Type)
-	if !ok || evt.IsFromMe || evt.Sender.IsEmpty() || isOwn(evt.Sender) {
+	if evt.Sender.IsEmpty() {
+		return nil
+	}
+	evtType := evt.Type
+	fromSelf := evt.IsFromMe || isOwn(evt.Sender)
+	if fromSelf && isOwn(evt.Chat) {
+		switch evtType {
+		case types.ReceiptTypeSender:
+			// Another of this account's devices received it.
+			evtType = types.ReceiptTypeDelivered
+		case types.ReceiptTypeReadSelf:
+			evtType = types.ReceiptTypeRead
+		case types.ReceiptTypePlayedSelf:
+			evtType = types.ReceiptTypePlayed
+		}
+		fromSelf = false
+	}
+	typ, ok := storedReceiptType(evtType)
+	if !ok || fromSelf {
 		return nil
 	}
 	ts := evt.Timestamp

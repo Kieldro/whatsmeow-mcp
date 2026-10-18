@@ -141,3 +141,34 @@ func TestPollsAndVotes(t *testing.T) {
 		t.Fatalf("want ErrNotFound, got %v", err)
 	}
 }
+
+func TestIdentityChanges(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "m.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	t0 := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
+	if got, err := s.IdentityChanges(0); err != nil || len(got) != 0 || got == nil {
+		t.Fatalf("empty: %v %#v", err, got)
+	}
+	if err := s.SaveIdentityChange(IdentityChange{JID: "111111111111111@lid", Phone: "15550100", OldLID: "111111111111111@lid",
+		Source: IdentitySourceNotification, Implicit: true, Timestamp: t0}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveIdentityChange(IdentityChange{JID: "15550100@s.whatsapp.net", Phone: "15550100", OldLID: "111111111111111@lid",
+		NewLID: "222222222222222@lid", Source: IdentitySourceSend, Timestamp: t0.Add(time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.IdentityChanges(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Source != IdentitySourceSend || got[0].NewLID != "222222222222222@lid" ||
+		!got[1].Implicit || got[1].NewLID != "" || !got[0].Timestamp.Equal(t0.Add(time.Minute)) {
+		t.Fatalf("identity changes = %+v", got)
+	}
+	if got, _ := s.IdentityChanges(1); len(got) != 1 {
+		t.Fatalf("limit ignored: %d rows", len(got))
+	}
+}

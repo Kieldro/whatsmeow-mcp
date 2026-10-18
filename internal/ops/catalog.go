@@ -193,6 +193,11 @@ type votePollIn struct {
 	Options []string `json:"options" jsonschema:"Option names to vote for, exactly as in the poll; an empty list retracts your vote"`
 }
 
+type messageStatusIn struct {
+	ChatJID string `json:"chat_jid" jsonschema:"Chat JID or phone number the message was sent to (as returned by the send call)"`
+	ID      string `json:"id" jsonschema:"Message ID returned by the send call"`
+}
+
 type limitIn struct {
 	Limit int `json:"limit,omitempty" jsonschema:"Maximum results (default 20, max 200)"`
 }
@@ -266,6 +271,16 @@ func All() []Op {
 			"Delivered/read/played receipts for messages (normally the user's own sent messages, including ones sent from the phone): overall status, first delivered/read/played times, and per-reader times in groups. Pass chat for the latest sent messages there, and/or message_ids. Only receipts received since receipt tracking started are known.", Read,
 			func(ctx context.Context, svc *wa.Service, in receiptsIn) (any, error) {
 				return svc.GetMessageReceipts(ctx, in.Chat, in.MessageIDs, in.Limit)
+			}),
+		define("message_status", "Message status",
+			"Delivery status of one sent message: sent (no receipt yet), delivered, read or played, with timestamps and per-reader times. Check it a while after important sends: a message stuck at sent can mean the recipient's WhatsApp identity changed.", Read,
+			func(ctx context.Context, svc *wa.Service, in messageStatusIn) (any, error) {
+				return svc.GetMessageStatus(ctx, in.ChatJID, in.ID)
+			}),
+		define("list_identity_changes", "List identity changes",
+			"Recent contact identity changes, newest first: new primary device notifications (source notification) and phone numbers whose LID changed, found before a send (source send), with old and new LID.", Read,
+			func(ctx context.Context, svc *wa.Service, in limitIn) (any, error) {
+				return svc.ListIdentityChanges(ctx, in.Limit)
 			}),
 		define("get_message_reactions", "Get message reactions",
 			"Current emoji reactions to messages, with who reacted and when (recorded from incoming events and history sync).", Read,

@@ -71,7 +71,7 @@ func Handler(svc *wa.Service) http.Handler {
 		if err != nil {
 			return fail(err)
 		}
-		return okResp(map[string]any{"message": "Message sent to " + req.Recipient, "id": s.ID, "chat_jid": s.ChatJID})
+		return okResp(sentResp(s, map[string]any{"message": "Message sent to " + req.Recipient}))
 	})
 
 	type pinnedReq struct {
@@ -95,7 +95,7 @@ func Handler(svc *wa.Service) http.Handler {
 		if err := svc.Pin(ctx, s.ChatJID, s.ID, days, false); err != nil {
 			return fail(fmt.Errorf("sent %s but pin failed: %w", s.ID, err))
 		}
-		return okResp(map[string]any{"id": s.ID, "chat_jid": s.ChatJID})
+		return okResp(sentResp(s, nil))
 	})
 
 	type replyReq struct {
@@ -112,7 +112,7 @@ func Handler(svc *wa.Service) http.Handler {
 		if err != nil {
 			return fail(err)
 		}
-		return okResp(map[string]any{"id": s.ID, "chat_jid": s.ChatJID})
+		return okResp(sentResp(s, nil))
 	})
 
 	post("/api/edit", func() any { return &replyReq{} }, func(ctx context.Context, _ *http.Request, r any) (map[string]any, int) {
@@ -173,7 +173,7 @@ func Handler(svc *wa.Service) http.Handler {
 		if err != nil {
 			return fail(err)
 		}
-		return okResp(map[string]any{"id": s.ID, "chat_jid": s.ChatJID})
+		return okResp(sentResp(s, nil))
 	})
 
 	type idReq struct {
@@ -352,6 +352,17 @@ func Handler(svc *wa.Service) http.Handler {
 		})
 	}
 	return mux
+}
+
+// sentResp builds the response fields for a sent message: id, chat_jid and
+// the recipient identity-change fields, plus extra.
+func sentResp(s wa.Sent, extra map[string]any) map[string]any {
+	out := s.Fields()
+	out["id"], out["chat_jid"] = s.ID, s.ChatJID
+	for k, v := range extra {
+		out[k] = v
+	}
+	return out
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

@@ -42,6 +42,8 @@ type Service struct {
 	presenceMu sync.Mutex
 	presence   map[string]LastSeen
 
+	recipients recipientCache
+
 	replacedMu     sync.Mutex
 	replacedCount  int
 	lastReplaced   time.Time
@@ -224,6 +226,8 @@ func (s *Service) handleEvent(evt any) {
 		s.handleReceipt(v)
 	case *events.DeleteForMe:
 		s.handleDeleteForMe(v)
+	case *events.IdentityChange:
+		s.handleIdentityChange(v)
 	case *events.CallOffer, *events.CallOfferNotice, *events.CallAccept, *events.CallReject, *events.CallTerminate:
 		s.handleCall(v)
 	case *events.Connected:
